@@ -1,0 +1,21 @@
+{
+    "name": "jimeng_api",
+    "version": "1.0.0",
+    "description": "",
+    "type": "module",
+    "main": "main.js",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1",
+        "start": "node main.js --size 9:16"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "packageManager": "pnpm@10.13.1",
+    "dependencies": {
+        "playwright": "^1.56.1",
+        "playwright-extra": "^4.3.6",
+        "puppeteer-extra-plugin-stealth": "^2.11.2",
+        "yargs": "^18.0.0"
+    }
+}
