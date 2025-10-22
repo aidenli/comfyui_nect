@@ -5,6 +5,7 @@ import fs from "fs";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import { fileURLToPath } from "url";
+import express from "express";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,6 +15,18 @@ chromium.use(stealth());
 
 // Add the stealth plugin to playwright-extra
 chromium.use(stealth);
+
+const SIZE_PRESET = [
+    "1:1",
+    "智能",
+    "21:9",
+    "16:9",
+    "3:2",
+    "4:3",
+    "3:4",
+    "2:3",
+    "9:16",
+];
 
 let STATE_PATH; // 状态保存文件
 
@@ -25,7 +38,7 @@ async function launchBrowser(stateJson, headless) {
     }
 
     const browser = await chromium.launch({
-        headless: false,
+        headless: headless,
         args: [
             "--disable-blink-features=AutomationControlled",
             "--disable-features=WebRtcHideLocalIpsWithMdns",
@@ -43,7 +56,7 @@ async function launchBrowser(stateJson, headless) {
     });
 
     const context = await browser.newContext({
-        viewport: { width: 1920, height: 1080 },
+        viewport: { width: 1920, height: 1024 },
         userAgent:
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
         locale: "zh-CN",
@@ -85,126 +98,184 @@ async function doLogin() {
     console.log("请在打开的浏览器中完成登录操作...");
     // 打开有头浏览器进行登录
     const { page, context } = await launchBrowser("state.json", false);
-    await gotoByUrl(page, "https://jimeng.jianying.com/ai-tool/home");
+    try {
+        await gotoByUrl(page, "https://jimeng.jianying.com/ai-tool/home");
 
-    // 查找id为Personal的div下的图片
-    const loginAvatar = await page.locator("div#Personal>>img").first();
-    await loginAvatar.waitFor({ timeout: 600000 });
-    // 保存登录状态（Cookie + localStorage）
-    await context.storageState({ path: STATE_PATH });
-    writeLogs(`登录状态已保存到: ${STATE_PATH}`);
-    console.log("登录成功");
-    // 关闭浏览器
-    await context.close();
+        // 查找id为Personal的div下的图片
+        const loginAvatar = await page.locator("div#Personal>>img").first();
+        await loginAvatar.waitFor({ timeout: 600000 });
+        // 保存登录状态（Cookie + localStorage）
+        await context.storageState({ path: STATE_PATH });
+        writeLogs(`登录状态已保存到: ${STATE_PATH}`);
+        console.log("登录成功");
+        // 关闭浏览器
+        await context.close();
+    } catch (err) {
+        if (context) {
+            await context.close();
+        }
+        throw err
+    }
 }
 
 async function generateImage(
-    params = { prompt: "1girl", size: "9:16", refs: [] }
+    params = { model: "图片 4.0", prompt: "1girl", size: "9:16", refs: [] }
 ) {
     const { page, context } = await launchBrowser("state.json", true);
-    writeLogs("开始生成图片...");
-    await gotoByUrl(
-        page,
-        "https://jimeng.jianying.com/ai-tool/generate?type=image"
-    );
+    try {
+        writeLogs("开始生成图片...");
+        await gotoByUrl(
+            page,
+            "https://jimeng.jianying.com/ai-tool/generate?type=image"
+        );
 
-    const url = await page.url();
-    if (url === "https://jimeng.jianying.com/ai-tool/home") {
-        writeLogs("未登录");
+
+        const url = await page.url();
+        if (url === "https://jimeng.jianying.com/ai-tool/home") {
+            writeLogs("未登录");
+            await context.close();
+            return false;
+        }
+
+        // 上传图片
+        if (params.refs.length > 0) {
+            await page.setInputFiles('input[type="file"]', params.refs);
+        }
+
+        // 选择模型
+        const arrSelectButton = await page.locator(`div[class*="toolbar-settings-"]>div`).all();
+        // 选择第二个
+        await arrSelectButton[1].click();
+        await page.waitForTimeout(Math.random() * 2000 + 500);
+        await page.click(`div[class*="option-label-"]:text("${params.model}")`);
+        await page.waitForTimeout(Math.random() * 2000 + 500);
+
+        // 选择分辨率
+        // 获取元素 div，模糊匹配类名toolbar-settings 下的 button
+        const sizeButton = await page.$("div[class*='toolbar-settings'] > button");
+        await sizeButton.click();
+
+        // 等待随机时间，模拟人类操作
+        await page.waitForTimeout(Math.random() * 2000 + 500);
+
+        // 点击 span，内容为 generateTypePreset.image.size.default
+        await page.click(
+            `div[class*="radio-content-"]>span:text("${params.size}")`
+        );
+        await page.waitForTimeout(Math.random() * 2000 + 500);
+        await page.click(
+            `div[class*="resolution-commercial-option-"]:has-text("高清 2K")`
+        );
+
+        // 等待随机时间，模拟人类操作
+        await page.waitForTimeout(Math.random() * 2000 + 500);
+        await sizeButton.click();
+
+        // 模糊匹配className为prompt-textarea-的textarea
+        await page.fill('textarea[class*="prompt-textarea-"]', params.prompt);
+
+        // 等待随机时间，模拟人类操作
+        await page.waitForTimeout(Math.random() * 2000 + 500);
+
+        // 点击生成按钮
+        const generateButton = await page.$(
+            'div[class*="toolbar-"]>>button[class*="submit-button-"]'
+        );
+        await generateButton.click();
+
+        // 等待随机时间，模拟人类操作
+        await page.waitForTimeout(1000);
+
+        writeLogs("查找responsive-container");
+        const container = await page
+            .locator("div[class*='responsive-container']")
+            .first();
+        await container.waitFor({ timeout: 5000 });
+        //error-tips-suVvkF
+
+        const errorTips = await container.locator("div[class*='error-tips-']").first();
+        const imgFirst = await container
+            .locator("div[class*='record-box-wrapper-'] >> img")
+            .first();
+
+        await Promise.race([
+            errorTips.waitFor({ timeout: 300000 }),
+            imgFirst.waitFor({ timeout: 300000 })
+        ]);
+
+        if (await errorTips.isVisible()) {
+            writeLogs("生成失败");
+            setResponse({
+                errcode: 1,
+                errmsg: "生成失败:" + await errorTips.textContent()
+            });
+            await context.close();
+            return true;
+        }
+
+        const imgList = await container.locator(
+            "div[class*='record-box-wrapper-'] >> img"
+        );
+        const imgCount = await imgList.count();
+        writeLogs(`图片数量: ${imgCount}`);
+        // 清空下载目录
+        const downloadsDir = path.join(__dirname, "downloads");
+        if (fs.existsSync(downloadsDir)) {
+            fs.rmSync(downloadsDir, { recursive: true });
+        }
+        fs.mkdirSync(downloadsDir);
+
+        const savePathList = [];
+        for (let i = 0; i < imgCount; i++) {
+            let attempt = 0;
+            let success = false;
+            let savePath = '';
+            while (attempt < 2 && !success) {
+                try {
+                    const img = await imgList.nth(i);
+                    await img.click({ button: "right" });
+
+                    // 等待1秒
+                    await page.waitForTimeout(1000);
+                    const downloadPromise = page.waitForEvent("download", { timeout: 30000 });
+                    await page.locator("text=下载图片").first().click();
+                    const download = await downloadPromise;
+                    savePath = path.join(downloadsDir, download.suggestedFilename());
+                    await download.saveAs(savePath);
+                    await page.waitForTimeout(1000);
+                    success = true;
+                } catch (err) {
+                    writeLogs(`图片 ${i + 1} 第${attempt + 1}次下载失败: ${err?.message || err}`);
+                    await page.waitForTimeout(1000);
+                }
+                attempt++;
+            }
+
+            if (!success) {
+                writeLogs(`图片 ${i + 1} 下载失败，已跳过`);
+            } else {
+                savePathList.push(savePath);
+                writeLogs(`图片 ${i + 1} 下载完成: ${savePath}`);
+            }
+        }
+        setResponse({
+            errcode: 0,
+            errmsg: "success",
+            data: {
+                imageList: savePathList,
+            },
+        });
         await context.close();
-        return false;
+        return true;
+    } catch (err) {
+        if (context) {
+            await context.close();
+        }
+        throw err
     }
-
-    // 上传图片
-    if (params.refs.length > 0) {
-        await page.setInputFiles('input[type="file"]', params.refs);
-    }
-
-    // 选择分辨率
-    // 获取元素 div，模糊匹配类名toolbar-settings 下的 button
-    const sizeButton = await page.$("div[class*='toolbar-settings'] > button");
-    await sizeButton.click();
-
-    // 等待随机时间，模拟人类操作
-    await page.waitForTimeout(Math.random() * 2000 + 1000);
-
-    // 点击 span，内容为 generateTypePreset.image.size.default
-    await page.click(
-        `div[class*="radio-content-"]>span:text("${params.size}")`
-    );
-
-    // 等待随机时间，模拟人类操作
-    await page.waitForTimeout(Math.random() * 2000 + 1000);
-
-    await sizeButton.click();
-
-    // 模糊匹配className为prompt-textarea-的textarea
-    await page.fill('textarea[class*="prompt-textarea-"]', params.prompt);
-
-    // 等待随机时间，模拟人类操作
-    await page.waitForTimeout(Math.random() * 2000 + 1000);
-
-    // 点击生成按钮
-    const generateButton = await page.$(
-        'div[class*="toolbar-"]>>button[class*="submit-button-"]'
-    );
-    await generateButton.click();
-
-    // 等待随机时间，模拟人类操作
-    await page.waitForTimeout(1000);
-
-    writeLogs("查找responsive-container");
-    const container = await page
-        .locator("div[class*='responsive-container']")
-        .first();
-    await container.waitFor({ timeout: 5000 });
-
-    const imgFirst = await container
-        .locator("div[class*='record-box-wrapper-'] >> img")
-        .first();
-
-    await imgFirst.waitFor({ timeout: 300000 });
-
-    const imgList = await container.locator(
-        "div[class*='record-box-wrapper-'] >> img"
-    );
-    const imgCount = await imgList.count();
-    writeLogs(`图片数量: ${imgCount}`);
-    // 清空下载目录
-    const downloadsDir = path.join(__dirname, "downloads");
-    if (fs.existsSync(downloadsDir)) {
-        fs.rmSync(downloadsDir, { recursive: true });
-    }
-    fs.mkdirSync(downloadsDir);
-
-    const savePathList = [];
-    for (let i = 0; i < imgCount; i++) {
-        const img = await imgList.nth(i);
-        await img.click({ button: "right" });
-
-        // 等待1秒
-        await page.waitForTimeout(1000);
-        const downloadPromise = page.waitForEvent("download");
-        await page.locator("text=下载图片").first().click();
-        const download = await downloadPromise;
-        const savePath = path.join(downloadsDir, download.suggestedFilename());
-        await download.saveAs(savePath);
-        await page.waitForTimeout(1000);
-        savePathList.push(savePath);
-        writeLogs(`图片 ${i + 1} 下载完成: ${savePath}`);
-    }
-    setResponse({
-        errcode: 0,
-        errmsg: "success",
-        data: {
-            imageList: savePathList,
-        },
-    });
-
-    return true;
 }
 
-async function writeLogs(logs) {
+async function writeLogs(logs, stack = '') {
     const logsDir = path.join(__dirname, "logs");
     if (!fs.existsSync(logsDir)) {
         fs.mkdirSync(logsDir, { recursive: true });
@@ -217,19 +288,89 @@ async function writeLogs(logs) {
     const dateString = `${yyyy}-${mm}-${dd}`;
 
     const logFilePath = path.join(logsDir, `${dateString}_log.txt`);
-    const stack = new Error().stack.split("\n");
-    const callerLine = stack[3].trim();
-    fs.appendFileSync(logFilePath, `${dateString} ${callerLine} ${logs}\n`);
+    const stackErr = new Error().stack.split("\n");
+    const callerLine = stackErr[3].trim();
+    fs.appendFileSync(logFilePath, `${dateString} ${callerLine} ${logs}\nstack: ${stack}\n`);
 }
 
 async function setResponse(response = {}) {
-    console.log(
-        JSON.stringify({
-            errcode: response.errcode || 0,
-            errmsg: response.errmsg || "success",
-            data: response.data || {},
-        })
-    );
+    const data = JSON.stringify({
+        errcode: response.errcode || 0,
+        errmsg: response.errmsg || "success",
+        data: response.data || {},
+    })
+    writeLogs(data);
+    console.log(data);
+}
+
+async function startServer() {
+    const app = express();
+    app.use(express.json({ limit: '10mb' }));
+
+    app.get('/health', (req, res) => {
+        res.json({ ok: true });
+    });
+
+    app.post('/api/generate-image', async (req, res) => {
+        try {
+            res.setTimeout(300000);
+            const { model = "图片 4.0", prompt = '1girl', size = '9:16', refs = [] } = req.body || {};
+
+            if (!SIZE_PRESET.includes(size)) {
+                writeLogs('分辨率参数错误');
+                return res.json({
+                    errcode: 1,
+                    errmsg: '分辨率参数错误',
+                });
+            }
+
+            // 截取前450个字符，避免修改常量
+            const promptText = (typeof prompt === 'string' ? prompt : String(prompt || '')).substring(0, 450);
+
+            let refsInput = Array.isArray(refs) ? refs : [];
+            refsInput = refsInput.filter((ref) => typeof ref === 'string' && fs.existsSync(ref)).slice(0, 3);
+
+            let ok = await generateImage({ model, prompt: promptText, size, refs: refsInput });
+
+            if (!ok) {
+                await doLogin();
+                ok = await generateImage({ model, prompt: promptText, size, refs: refsInput });
+            }
+
+            const downloadsDir = path.join(__dirname, 'downloads');
+            const imageList = fs.existsSync(downloadsDir)
+                ? fs.readdirSync(downloadsDir).map((f) => path.join(downloadsDir, f))
+                : [];
+
+            if (imageList.length === 0) {
+                writeLogs('生成失败或超时');
+                return res.json({
+                    errcode: 1,
+                    errmsg: '生成失败或超时',
+                });
+            }
+
+            return res.json({
+                errcode: 0,
+                errmsg: 'success',
+                data: { imageList },
+            });
+        } catch (error) {
+            // 获取error的堆栈
+            const stack = error.stack || '';
+            writeLogs(error.message || '生成异常', stack);
+            return res.json({
+                errcode: 1,
+                errmsg: error.message || '生成异常',
+            });
+        }
+    });
+
+    const PORT = process.env.PORT || 11880;
+    const server = app.listen(PORT, () => {
+        console.log(`Server running at http://localhost:${PORT}/`);
+    });
+    server.setTimeout(300000);
 }
 
 /**
@@ -239,6 +380,12 @@ async function main() {
     // 获取命令行参数
     const argv = yargs(hideBin(process.argv))
         .command("--prompt <prompt> --size <size> --refs <引用图片列表>")
+        .option("model", {
+            alias: "m",
+            type: "string",
+            default: "图片 4.0",
+            description: "模型名称",
+        })
         .option("prompt", {
             alias: "p",
             type: "string",
@@ -259,17 +406,7 @@ async function main() {
         })
         .parse();
 
-    const sizePreset = [
-        "1:1",
-        "智能",
-        "21:9",
-        "16:9",
-        "3:2",
-        "4:3",
-        "3:4",
-        "2:3",
-        "9:16",
-    ];
+    const sizePreset = SIZE_PRESET;
 
     try {
         if (!sizePreset.includes(argv.size)) {
@@ -284,10 +421,13 @@ async function main() {
             // 取最多三张图片
             refs = refs.slice(0, 3);
         }
-        console.log(refs);
+
+        // 截取前450个字符
+        const promptText = (typeof argv.prompt === 'string' ? argv.prompt : String(argv.prompt || '')).substring(0, 450);
 
         const isLogin = await generateImage({
-            prompt: argv.prompt,
+            model: argv.model,
+            prompt: promptText,
             size: argv.size,
             refs,
         });
@@ -298,7 +438,8 @@ async function main() {
 
             // 执行业务逻辑
             await generateImage({
-                prompt: argv.prompt,
+                model: argv.model,
+                prompt: promptText,
                 size: argv.size,
                 refs,
             });
@@ -311,5 +452,11 @@ async function main() {
     }
 }
 
-// 运行主函数
-main();
+// 入口：命令行或服务模式
+const argvRaw = hideBin(process.argv);
+if (argvRaw.includes('--serve')) {
+    startServer();
+} else {
+    main();
+}
+

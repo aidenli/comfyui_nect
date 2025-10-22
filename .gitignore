@@ -1,0 +1,60 @@
+# Node
+node_modules/
+.pnpm-store/
+dist/
+build/
+coverage/
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Playwright
+playwright-report/
+test-results/
+playwright/.cache/
+
+# Env files
+.env
+.env.*
+*.local
+
+# Package manager lock files not used by pnpm
+package-lock.json
+yarn.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+pip-wheel-metadata/
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+tmp/
+temp/
+*.tmp
+*.temp
+
+# biz
+downloads/
+logs/
+state/
+refs/

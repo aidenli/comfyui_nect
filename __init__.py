@@ -1,9 +1,9 @@
-from .nodes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
+from .nodes.jimeng import JiMengNode
 
 NODE_CLASS_MAPPINGS = {
-    "HelloNect": HelloNect,
+    "JiMeng": JiMengNode,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "HelloNect": "Hello Nect",
+    "JiMeng": "JiMeng",
 }
