@@ -8,7 +8,6 @@ import threading
 from dotenv import load_dotenv
 load_dotenv()
 
-# 服务端口，默认 3000（与 main.js 保持一致）
 PORT = os.getenv("PORT", "11880")
 BASE_URL = f"http://localhost:{PORT}"
 

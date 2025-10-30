@@ -12,7 +12,7 @@ call pnpm config set registry https://registry.npmmirror.com
 REM 安装依赖
 echo Installing dependencies...
 call pnpm install
-call npx playwright install
+call npx playwright install chromium
 
 echo 安装完成，点击回车退出
 pause

@@ -366,7 +366,7 @@ async function startServer() {
         }
     });
 
-    const PORT = process.env.PORT || 11880;
+    const PORT = process.env.PORT || "11880";
     const server = app.listen(PORT, () => {
         console.log(`Server running at http://localhost:${PORT}/`);
     });

@@ -18,7 +18,6 @@ playwright/.cache/
 
 # Env files
 .env
-.env.*
 *.local
 
 # Package manager lock files not used by pnpm
