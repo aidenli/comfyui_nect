@@ -230,14 +230,12 @@ async function generateImage(
             let attempt = 0;
             let success = false;
             let savePath = '';
-            while (attempt < 2 && !success) {
+            while (attempt < 5 && !success) {
                 try {
                     const img = await imgList.nth(i);
                     await img.click({ button: "right" });
-
-                    // 等待1秒
                     await page.waitForTimeout(1000);
-                    const downloadPromise = page.waitForEvent("download", { timeout: 30000 });
+                    const downloadPromise = page.waitForEvent("download", { timeout: 10000 });
                     await page.locator("text=下载图片").first().click();
                     const download = await downloadPromise;
                     savePath = path.join(downloadsDir, download.suggestedFilename());

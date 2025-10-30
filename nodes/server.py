@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 PORT = os.getenv("PORT", "11880")
-BASE_URL = f"http://localhost:{PORT}"
+BASE_URL = f"http://127.0.0.1:{PORT}"
 
 node_process = None
 

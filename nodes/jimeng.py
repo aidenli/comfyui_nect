@@ -94,7 +94,7 @@ def request_generate_image_api(model, prompt, size: str = None, refs_json: str =
     """
     try:
         PORT = os.getenv("PORT", "11880")
-        url = f"http://localhost:{PORT}/api/generate-image"
+        url = f"http://127.0.0.1:{PORT}/api/generate-image"
         payload = {
             "model": model,
             "prompt": prompt,
