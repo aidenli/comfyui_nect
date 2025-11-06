@@ -30,7 +30,26 @@ const SIZE_PRESET = [
 
 let STATE_PATH; // 状态保存文件
 
-async function launchBrowser(stateJson, headless) {
+function normalizeViewport(viewport) {
+    try {
+        const w = Number(viewport?.width);
+        const h = Number(viewport?.height);
+        if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
+            // 设定合理的上下限，避免异常值
+            const width = Math.min(Math.max(Math.floor(w), 320), 3840);
+            const height = Math.min(Math.max(Math.floor(h), 480), 2160);
+            return { width, height };
+        }
+    } catch (_) {}
+    return null;
+}
+
+function getDefaultViewport() {
+    // 默认分辨率：在桌面环境下较稳定
+    return { width: 1400, height: 720 };
+}
+
+async function launchBrowser(stateJson, headless, viewport) {
     STATE_PATH = path.join(__dirname, "state", stateJson);
     if (!fs.existsSync(STATE_PATH)) {
         // 创建文件
@@ -39,6 +58,7 @@ async function launchBrowser(stateJson, headless) {
 
     const browser = await chromium.launch({
         headless: headless,
+        // headless: false,
         args: [
             "--disable-blink-features=AutomationControlled",
             "--disable-features=WebRtcHideLocalIpsWithMdns",
@@ -55,8 +75,10 @@ async function launchBrowser(stateJson, headless) {
         ignoreDefaultArgs: ["--enable-automation"],
     });
 
+    const parsedViewport = normalizeViewport(viewport) || getDefaultViewport();
     const context = await browser.newContext({
-        viewport: { width: 1920, height: 1024 },
+        viewport: parsedViewport,
+        // viewport: { width: 1080, height: 720 },
         userAgent:
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
         locale: "zh-CN",
@@ -97,7 +119,7 @@ async function gotoByUrl(page, url) {
 async function doLogin() {
     console.log("请在打开的浏览器中完成登录操作...");
     // 打开有头浏览器进行登录
-    const { page, context } = await launchBrowser("state.json", false);
+    const { page, context } = await launchBrowser("state.json", false, getDefaultViewport());
     try {
         await gotoByUrl(page, "https://jimeng.jianying.com/ai-tool/home");
 
@@ -119,9 +141,9 @@ async function doLogin() {
 }
 
 async function generateImage(
-    params = { model: "图片 4.0", prompt: "1girl", size: "9:16", refs: [] }
+    params = { model: "图片 4.0", prompt: "1girl", size: "9:16", refs: [], clientViewport: null }
 ) {
-    const { page, context } = await launchBrowser("state.json", true);
+    const { page, context } = await launchBrowser("state.json", true, params.clientViewport);
     try {
         writeLogs("开始生成图片...");
         await gotoByUrl(
@@ -137,18 +159,15 @@ async function generateImage(
             return false;
         }
 
+        // 关闭浮层
+        try {
+            await page.locator(`span[class*="lv-modal-close-icon"]`).first().click({ timeout: 3000 });
+        } catch (err) {console.error("关闭浮层失败", err)}
+
         // 上传图片
         if (params.refs.length > 0) {
             await page.setInputFiles('input[type="file"]', params.refs);
         }
-
-        // 选择模型
-        const arrSelectButton = await page.locator(`div[class*="toolbar-settings-"]>div`).all();
-        // 选择第二个
-        await arrSelectButton[1].click();
-        await page.waitForTimeout(Math.random() * 2000 + 500);
-        await page.click(`div[class*="option-label-"]:text("${params.model}")`);
-        await page.waitForTimeout(Math.random() * 2000 + 500);
 
         // 选择分辨率
         // 获取元素 div，模糊匹配类名toolbar-settings 下的 button
@@ -186,12 +205,13 @@ async function generateImage(
         // 等待随机时间，模拟人类操作
         await page.waitForTimeout(1000);
 
+        // ------------------------- 等待图片生成 -------------------------
+
         writeLogs("查找responsive-container");
         const container = await page
             .locator("div[class*='responsive-container']")
             .first();
         await container.waitFor({ timeout: 5000 });
-        //error-tips-suVvkF
 
         const errorTips = await container.locator("div[class*='error-tips-']").first();
         const imgFirst = await container
@@ -236,7 +256,7 @@ async function generateImage(
                     await img.click({ button: "right" });
                     await page.waitForTimeout(1000);
                     const downloadPromise = page.waitForEvent("download", { timeout: 10000 });
-                    await page.locator("text=下载图片").first().click();
+                    await page.locator('div:text("下载图片")').first().click();
                     const download = await downloadPromise;
                     savePath = path.join(downloadsDir, download.suggestedFilename());
                     await download.saveAs(savePath);
@@ -256,6 +276,9 @@ async function generateImage(
                 writeLogs(`图片 ${i + 1} 下载完成: ${savePath}`);
             }
         }
+
+        await context.storageState({ path: STATE_PATH });
+
         setResponse({
             errcode: 0,
             errmsg: "success",
@@ -312,7 +335,7 @@ async function startServer() {
     app.post('/api/generate-image', async (req, res) => {
         try {
             res.setTimeout(300000);
-            const { model = "图片 4.0", prompt = '1girl', size = '9:16', refs = [] } = req.body || {};
+            const { model = "图片 4.0", prompt = '1girl', size = '9:16', refs = [], clientWidth, clientHeight } = req.body || {};
 
             if (!SIZE_PRESET.includes(size)) {
                 writeLogs('分辨率参数错误');
@@ -328,11 +351,24 @@ async function startServer() {
             let refsInput = Array.isArray(refs) ? refs : [];
             refsInput = refsInput.filter((ref) => typeof ref === 'string' && fs.existsSync(ref)).slice(0, 3);
 
-            let ok = await generateImage({ model, prompt: promptText, size, refs: refsInput });
+            const clientViewport = (function () {
+                const wHeader = Number(req.headers['x-client-width']);
+                const hHeader = Number(req.headers['x-client-height']);
+                const wBody = Number(clientWidth);
+                const hBody = Number(clientHeight);
+                const w = Number.isFinite(wBody) ? wBody : (Number.isFinite(wHeader) ? wHeader : null);
+                const h = Number.isFinite(hBody) ? hBody : (Number.isFinite(hHeader) ? hHeader : null);
+                if (Number.isFinite(w) && Number.isFinite(h)) {
+                    return { width: w, height: h };
+                }
+                return null;
+            })();
+
+            let ok = await generateImage({ model, prompt: promptText, size, refs: refsInput, clientViewport });
 
             if (!ok) {
                 await doLogin();
-                ok = await generateImage({ model, prompt: promptText, size, refs: refsInput });
+                ok = await generateImage({ model, prompt: promptText, size, refs: refsInput, clientViewport });
             }
 
             const downloadsDir = path.join(__dirname, 'downloads');

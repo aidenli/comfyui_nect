@@ -128,7 +128,7 @@ class JiMengNode:
     OUTPUT_NODE = False
     CATEGORY = "image"
 
-    def run(self, model, prompt, images=None, size=None, seed=None):
+    def run(self, model, prompt, size=None, images=None, seed=None):
         reset_resources()
         start_node_server()
 
