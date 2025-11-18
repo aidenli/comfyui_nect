@@ -1,14 +1,12 @@
 import os
 import shutil
 import json
-import subprocess
 from typing import List, Union
 import torch 
 from PIL import Image
 import numpy as np
 from dotenv import load_dotenv
-import requests
-from .server import start_node_server
+from .webdriver import generate_image
 
 load_dotenv()
 
@@ -87,23 +85,15 @@ def _save_image_any(img: Union["torch.Tensor", "Image.Image"], out_path: str):
 # --- 通过 Web 服务调用生成接口 ---
 def request_generate_image_api(model, prompt, size: str = None, refs_json: str = None):
     """
-    调用 Node.js 生成图片的 API
+    直接通过 webdriver 生成图片的函数封装，保持返回结构一致
     - prompt: 文本提示词
     - size: 比值字符串，如 "9:16"
     - refs_json: JSON 序列化的本地图片路径数组字符串
     """
     try:
-        PORT = os.getenv("PORT", "11880")
-        url = f"http://127.0.0.1:{PORT}/api/generate-image"
-        payload = {
-            "model": model,
-            "prompt": prompt,
-            "size": size or "9:16",
-            "refs": json.loads(refs_json) if refs_json else [],
-        }
-        resp = requests.post(url, json=payload, timeout=300)
-        resp.raise_for_status()
-        return resp.json()
+        refs = json.loads(refs_json) if refs_json else []
+        result = generate_image(model=model, prompt=prompt, size=size or "9:16", refs=refs)
+        return result
     except Exception as e:
         return {"errcode": 1, "errmsg": f"请求异常: {e}"}
 
@@ -130,15 +120,14 @@ class JiMengNode:
 
     def run(self, model, prompt, size=None, images=None, seed=None):
         reset_resources()
-        start_node_server()
 
         saved_paths: List[str] = []
         start_idx = 1
         # 处理并保存传入的 images（如果有）
         if images is not None:
-            imgs = images if isinstance(images, (list, tuple)) else [images]
-            for i, img in enumerate(imgs):
+            for i, img in enumerate(images):
                 out_name = f"{start_idx + i}.png"
+                print(f"保存图片到 {out_name}")
                 out_path = os.path.join(refs_path, out_name)
                 _save_image_any(img, out_path)
                 saved_paths.append(out_path)
@@ -147,7 +136,7 @@ class JiMengNode:
         size_arg = "9:16"
         if isinstance(size, str) and size:
             size_arg = size.split()[0]
-
+        print(saved_paths)
         # 调用接口生成图片
         response = request_generate_image_api(model, prompt, size_arg, json.dumps(saved_paths))
         if response.get("errcode") != 0:
